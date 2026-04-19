@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sidequest Simulator</title>
+  <link rel="stylesheet" href="design.css" />
+</head>
+<body>
+  <main class="container">
+    <header class="hero-card">
+      <div>
+        <p class="eyebrow">Guild Board</p>
+        <h1>Sidequest Simulator</h1>
+        <p class="hero-subtitle">Verteile kleine Missionen an deine Gefährten.</p>
+      </div>
+      <button id="clearAllBtn" type="button" class="secondary-btn">Board leeren</button>
+    </header>
+
+    <section class="top-grid">
+      <section class="panel quest-creation-panel">
+        <div class="panel-header">
+          <span class="panel-badge">Neue Quest</span>
+          <h2>Sidequest anlegen</h2>
+        </div>
+
+        <form id="questForm" class="quest-form">
+          <label for="title">Questtitel</label>
+          <input id="title" name="title" type="text" placeholder="z. B. Bring mir einen Kaffee" required />
+
+          <label for="assignee">Adressiert an</label>
+          <input id="assignee" name="assignee" type="text" placeholder="z. B. Alex" required />
+
+          <label for="dueDate">Fällig am</label>
+          <input id="dueDate" name="dueDate" type="date" required />
+
+          <label for="description">Questbeschreibung</label>
+          <textarea id="description" name="description" rows="4" placeholder="Beschreibe die Mission..."></textarea>
+
+          <button type="submit" class="primary-btn">Quest ans Brett hängen</button>
+        </form>
+      </section>
+
+      <section class="panel stats-panel">
+        <div class="panel-header">
+          <span class="panel-badge">Übersicht</span>
+          <h2>Status des Questboards</h2>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span>Offen</span>
+            <strong id="requestedCount">0</strong>
+          </div>
+
+          <div class="stat-box">
+            <span>Angenommen</span>
+            <strong id="acceptedCount">0</strong>
+          </div>
+
+          <div class="stat-box">
+            <span>Absolviert</span>
+            <strong id="completedCount">0</strong>
+          </div>
+
+          <div class="stat-box">
+            <span>Abgelehnt</span>
+            <strong id="rejectedCount">0</strong>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="panel">
+      <div class="section-title-row">
+        <h2>Angefragte Sidequests</h2>
+      </div>
+      <div id="requestedList" class="quest-list"></div>
+    </section>
+
+    <section class="bottom-grid">
+      <section class="panel">
+        <div class="section-title-row">
+          <h2>Angenommen</h2>
+        </div>
+        <div id="acceptedList" class="quest-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-title-row">
+          <h2>Absolviert</h2>
+        </div>
+        <div id="completedList" class="quest-list"></div>
+      </section>
+    </section>
+
+    <section class="panel">
+      <div class="section-title-row">
+        <h2>Abgelehnt</h2>
+      </div>
+      <div id="rejectedList" class="quest-list"></div>
+    </section>
+  </main>
+
+  <div id="responseModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-card">
+      <h3 id="modalTitle">Antwort auf Sidequest</h3>
+      <p id="modalQuestInfo" class="modal-info"></p>
+
+      <label for="responseMessage">Optionale Nachricht</label>
+      <textarea
+        id="responseMessage"
+        rows="5"
+        placeholder="z. B. Mach ich morgen / Keine Zeit / Klingt gut"
+      ></textarea>
+
+      <div class="modal-actions">
+        <button id="cancelModalBtn" type="button" class="secondary-btn">Abbrechen</button>
+        <button id="confirmModalBtn" type="button" class="primary-btn">Bestätigen</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
