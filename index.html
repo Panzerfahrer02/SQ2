@@ -12,14 +12,51 @@
       <div>
         <p class="eyebrow">Guild Board</p>
         <h1>Sidequest Simulator</h1>
-        <p class="hero-subtitle">Verteile kleine Missionen an deine Gefährten.</p>
+        <p class="hero-subtitle">
+          Lokales Questboard mit teilbarem Snapshot-Link.
+        </p>
       </div>
-      <button id="clearAllBtn" type="button" class="secondary-btn">Board leeren</button>
+
+      <div class="hero-actions">
+        <button id="shareBoardBtn" type="button" class="secondary-btn">Board-Link generieren</button>
+        <button id="clearAllBtn" type="button" class="danger-btn">Alle Quests löschen</button>
+      </div>
     </header>
 
-    <section class="top-grid">
-      <section class="panel quest-creation-panel">
-        <div class="panel-header">
+    <section class="panel board-panel">
+      <div class="board-row">
+        <div>
+          <span class="panel-badge">Aktives Board</span>
+          <h2 id="boardTitle">Board: default</h2>
+          <p class="board-hint">
+            Der Link enthält den aktuellen Stand deiner Quests.
+          </p>
+        </div>
+
+        <div class="board-switcher">
+          <label for="boardInput">Board-Name</label>
+          <div class="board-switcher-row">
+            <input id="boardInput" type="text" placeholder="z. B. freunde" />
+            <button id="openBoardBtn" type="button" class="primary-btn">Board öffnen</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel collapsible-panel">
+      <button
+        id="toggleQuestFormBtn"
+        class="collapse-toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="questFormWrapper"
+      >
+        <span>➕ Sidequest hinzufügen</span>
+        <span id="toggleIcon" class="toggle-icon">▾</span>
+      </button>
+
+      <div id="questFormWrapper" class="collapsible-content collapsed">
+        <div class="panel-header panel-header-inner">
           <span class="panel-badge">Neue Quest</span>
           <h2>Sidequest anlegen</h2>
         </div>
@@ -39,36 +76,36 @@
 
           <button type="submit" class="primary-btn">Quest ans Brett hängen</button>
         </form>
-      </section>
+      </div>
+    </section>
 
-      <section class="panel stats-panel">
-        <div class="panel-header">
-          <span class="panel-badge">Übersicht</span>
-          <h2>Status des Questboards</h2>
+    <section class="panel stats-panel">
+      <div class="panel-header">
+        <span class="panel-badge">Übersicht</span>
+        <h2>Status des Questboards</h2>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-box">
+          <span>Offen</span>
+          <strong id="requestedCount">0</strong>
         </div>
 
-        <div class="stats-grid">
-          <div class="stat-box">
-            <span>Offen</span>
-            <strong id="requestedCount">0</strong>
-          </div>
-
-          <div class="stat-box">
-            <span>Angenommen</span>
-            <strong id="acceptedCount">0</strong>
-          </div>
-
-          <div class="stat-box">
-            <span>Absolviert</span>
-            <strong id="completedCount">0</strong>
-          </div>
-
-          <div class="stat-box">
-            <span>Abgelehnt</span>
-            <strong id="rejectedCount">0</strong>
-          </div>
+        <div class="stat-box">
+          <span>Angenommen</span>
+          <strong id="acceptedCount">0</strong>
         </div>
-      </section>
+
+        <div class="stat-box">
+          <span>Absolviert</span>
+          <strong id="completedCount">0</strong>
+        </div>
+
+        <div class="stat-box">
+          <span>Abgelehnt</span>
+          <strong id="rejectedCount">0</strong>
+        </div>
+      </div>
     </section>
 
     <section class="panel">
@@ -100,6 +137,8 @@
       </div>
       <div id="rejectedList" class="quest-list"></div>
     </section>
+
+    <section id="statusBanner" class="status-banner hidden"></section>
   </main>
 
   <div id="responseModal" class="modal hidden" aria-hidden="true">
@@ -107,7 +146,10 @@
       <h3 id="modalTitle">Antwort auf Sidequest</h3>
       <p id="modalQuestInfo" class="modal-info"></p>
 
-      <label for="responseMessage">Optionale Nachricht</label>
+      <label for="responseAuthor">Dein Name (optional)</label>
+      <input id="responseAuthor" type="text" placeholder="z. B. Alex" />
+
+      <label for="responseMessage">Nachricht (optional)</label>
       <textarea
         id="responseMessage"
         rows="5"
