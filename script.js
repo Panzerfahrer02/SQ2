@@ -1,6 +1,6 @@
 const STORAGE_PREFIX = "sidequestSimulatorBoard:";
-const SNAPSHOT_PARAM = "data";
 const BOARD_PARAM = "board";
+const ACTION_PARAM = "action";
 
 const questForm = document.getElementById("questForm");
 const titleInput = document.getElementById("title");
@@ -49,14 +49,18 @@ function initialize() {
 
   initCollapseForMobile();
   bindEvents();
-  loadBoardState();
+
+  quests = loadQuests();
+
+  handleIncomingLinkAction();
+
   renderAll();
 }
 
 function bindEvents() {
   questForm.addEventListener("submit", handleQuestSubmit);
   clearAllBtn.addEventListener("click", clearAllQuests);
-  shareBoardBtn.addEventListener("click", shareBoardLink);
+  shareBoardBtn.addEventListener("click", exportRequestedQuests);
 
   cancelModalBtn.addEventListener("click", closeModal);
   confirmModalBtn.addEventListener("click", confirmModalAction);
@@ -101,43 +105,6 @@ function sanitizeBoardId(value) {
 
 function getStorageKey(boardId) {
   return STORAGE_PREFIX + boardId;
-}
-
-function loadBoardState() {
-  const snapshotQuests = readSnapshotFromUrl();
-
-  if (snapshotQuests) {
-    quests = snapshotQuests;
-    saveQuests();
-    removeSnapshotFromUrl();
-    showStatus("Quest-Stand aus Link geladen.");
-    return;
-  }
-
-  quests = loadQuests();
-}
-
-function readSnapshotFromUrl() {
-  const params = new URLSearchParams(window.location.search);
-  const raw = params.get(SNAPSHOT_PARAM);
-
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    return decodeBoardSnapshot(raw);
-  } catch (error) {
-    console.error("Fehler beim Lesen des Snapshot-Links:", error);
-    showStatus("Snapshot-Link konnte nicht gelesen werden.");
-    return null;
-  }
-}
-
-function removeSnapshotFromUrl() {
-  const url = new URL(window.location.href);
-  url.searchParams.delete(SNAPSHOT_PARAM);
-  window.history.replaceState({}, "", url.toString());
 }
 
 function loadQuests() {
@@ -206,7 +173,8 @@ function handleQuestSubmit(event) {
     updatedAt: new Date().toISOString(),
     responseMessage: "",
     responseType: "",
-    responseAuthor: ""
+    responseAuthor: "",
+    source: "local"
   };
 
   quests.push(newQuest);
@@ -229,42 +197,183 @@ function clearAllQuests() {
   showStatus("Alle Quests wurden gelöscht.");
 }
 
-async function shareBoardLink() {
-  try {
-    const snapshot = encodeBoardSnapshot(quests);
-    const url = new URL(window.location.href);
+function exportRequestedQuests() {
+  const requested = quests.filter(function (quest) {
+    return quest.status === "requested";
+  });
 
-    url.searchParams.set(BOARD_PARAM, currentBoardId);
-    url.searchParams.set(SNAPSHOT_PARAM, snapshot);
-
-    const shareUrl = url.toString();
-
-    if (shareUrl.length > 7000) {
-      showStatus("Zu viele Daten für einen stabilen Link. Weniger Quests oder kürzere Texte verwenden.");
-      return;
-    }
-
-    if (navigator.share) {
-      await navigator.share({
-        title: "Sidequest Simulator",
-        text: "Hier ist mein aktueller Quest-Stand:",
-        url: shareUrl
-      });
-      showStatus("Board-Link geteilt.");
-      return;
-    }
-
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(shareUrl);
-      showStatus("Board-Link in die Zwischenablage kopiert.");
-      return;
-    }
-
-    prompt("Kopiere diesen Link:", shareUrl);
-  } catch (error) {
-    console.error(error);
-    showStatus("Fehler beim Generieren des Links.");
+  if (requested.length === 0) {
+    showStatus("Keine offenen Quests zum Exportieren.");
+    return;
   }
+
+  const links = requested.map(function (quest) {
+    return buildQuestRequestLink(quest);
+  });
+
+  const text = links.join("\n\n");
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () {
+      showStatus("Quest-Links in die Zwischenablage kopiert.");
+    }).catch(function () {
+      prompt("Kopiere diese Quest-Links:", text);
+    });
+  } else {
+    prompt("Kopiere diese Quest-Links:", text);
+  }
+}
+
+function buildQuestRequestLink(quest) {
+  const url = new URL(window.location.origin + window.location.pathname);
+
+  url.searchParams.set(BOARD_PARAM, currentBoardId);
+  url.searchParams.set(ACTION_PARAM, "quest");
+  url.searchParams.set("qid", quest.id);
+  url.searchParams.set("title", quest.title);
+  url.searchParams.set("description", quest.description || "");
+  url.searchParams.set("assignee", quest.assignee);
+  url.searchParams.set("dueDate", quest.dueDate);
+  url.searchParams.set("createdAt", quest.createdAt || "");
+  url.searchParams.set("updatedAt", quest.updatedAt || "");
+
+  return url.toString();
+}
+
+function buildQuestResponseLink(quest) {
+  const url = new URL(window.location.origin + window.location.pathname);
+
+  url.searchParams.set(BOARD_PARAM, currentBoardId);
+  url.searchParams.set(ACTION_PARAM, "response");
+  url.searchParams.set("qid", quest.id);
+  url.searchParams.set("status", quest.status);
+  url.searchParams.set("responseAuthor", quest.responseAuthor || "");
+  url.searchParams.set("responseMessage", quest.responseMessage || "");
+  url.searchParams.set("responseType", quest.responseType || "");
+  url.searchParams.set("updatedAt", quest.updatedAt || new Date().toISOString());
+
+  return url.toString();
+}
+
+function handleIncomingLinkAction() {
+  const params = new URLSearchParams(window.location.search);
+  const action = params.get(ACTION_PARAM);
+
+  if (!action) {
+    return;
+  }
+
+  if (action === "quest") {
+    importQuestFromUrl(params);
+    cleanupActionParams();
+    return;
+  }
+
+  if (action === "response") {
+    importResponseFromUrl(params);
+    cleanupActionParams();
+  }
+}
+
+function importQuestFromUrl(params) {
+  const id = params.get("qid");
+  const title = params.get("title");
+  const description = params.get("description") || "";
+  const assignee = params.get("assignee");
+  const dueDate = params.get("dueDate");
+  const createdAt = params.get("createdAt") || new Date().toISOString();
+  const updatedAt = params.get("updatedAt") || new Date().toISOString();
+
+  if (!id || !title || !assignee || !dueDate) {
+    showStatus("Quest-Link unvollständig.");
+    return;
+  }
+
+  const existingIndex = quests.findIndex(function (quest) {
+    return quest.id === id;
+  });
+
+  const importedQuest = {
+    id: id,
+    title: title,
+    description: description,
+    assignee: assignee,
+    dueDate: dueDate,
+    status: "requested",
+    createdAt: createdAt,
+    updatedAt: updatedAt,
+    responseMessage: "",
+    responseType: "",
+    responseAuthor: "",
+    source: "imported"
+  };
+
+  if (existingIndex >= 0) {
+    quests[existingIndex] = {
+      ...quests[existingIndex],
+      ...importedQuest
+    };
+    showStatus("Quest aus Link aktualisiert.");
+  } else {
+    quests.push(importedQuest);
+    showStatus("Quest aus Link importiert.");
+  }
+
+  saveQuests();
+}
+
+function importResponseFromUrl(params) {
+  const id = params.get("qid");
+  const status = params.get("status");
+  const responseAuthor = params.get("responseAuthor") || "";
+  const responseMessage = params.get("responseMessage") || "";
+  const responseType = params.get("responseType") || status || "";
+  const updatedAt = params.get("updatedAt") || new Date().toISOString();
+
+  if (!id || !status) {
+    showStatus("Antwort-Link unvollständig.");
+    return;
+  }
+
+  const existingIndex = quests.findIndex(function (quest) {
+    return quest.id === id;
+  });
+
+  if (existingIndex < 0) {
+    showStatus("Antwort erhalten, aber passende Quest lokal nicht gefunden.");
+    return;
+  }
+
+  quests[existingIndex] = {
+    ...quests[existingIndex],
+    status: status,
+    responseAuthor: responseAuthor,
+    responseMessage: responseMessage,
+    responseType: responseType,
+    updatedAt: updatedAt
+  };
+
+  saveQuests();
+  showStatus("Quest-Antwort aus Link übernommen.");
+}
+
+function cleanupActionParams() {
+  const url = new URL(window.location.href);
+
+  url.searchParams.delete(ACTION_PARAM);
+  url.searchParams.delete("qid");
+  url.searchParams.delete("title");
+  url.searchParams.delete("description");
+  url.searchParams.delete("assignee");
+  url.searchParams.delete("dueDate");
+  url.searchParams.delete("createdAt");
+  url.searchParams.delete("updatedAt");
+  url.searchParams.delete("status");
+  url.searchParams.delete("responseAuthor");
+  url.searchParams.delete("responseMessage");
+  url.searchParams.delete("responseType");
+
+  window.history.replaceState({}, "", url.toString());
 }
 
 function openAnotherBoard() {
@@ -277,7 +386,7 @@ function openAnotherBoard() {
 
   const url = new URL(window.location.href);
   url.searchParams.set(BOARD_PARAM, newBoard);
-  url.searchParams.delete(SNAPSHOT_PARAM);
+  url.searchParams.delete(ACTION_PARAM);
   window.location.href = url.toString();
 }
 
@@ -406,6 +515,12 @@ function createQuestCard(quest) {
 
   if (quest.status === "requested") {
     actions.appendChild(
+      createButton("Quest-Link", "reset-btn", function () {
+        copyText(buildQuestRequestLink(quest), "Quest-Link kopiert.");
+      })
+    );
+
+    actions.appendChild(
       createButton("Annehmen", "accept-btn", function () {
         openResponseModal(quest, "accepted");
       })
@@ -429,8 +544,36 @@ function createQuestCard(quest) {
     );
 
     actions.appendChild(
+      createButton("Antwort-Link", "reset-btn", function () {
+        copyText(buildQuestResponseLink(quest), "Antwort-Link kopiert.");
+      })
+    );
+
+    actions.appendChild(
       createButton("Ablehnen", "reject-btn", function () {
         openResponseModal(quest, "rejected");
+      })
+    );
+  }
+
+  if (quest.status === "rejected") {
+    actions.appendChild(
+      createButton("Antwort-Link", "reset-btn", function () {
+        copyText(buildQuestResponseLink(quest), "Antwort-Link kopiert.");
+      })
+    );
+  }
+
+  if (quest.status === "completed") {
+    actions.appendChild(
+      createButton("Zurück auf offen", "reset-btn", function () {
+        updateQuest(quest.id, {
+          status: "requested",
+          responseMessage: "",
+          responseType: "",
+          responseAuthor: "",
+          updatedAt: new Date().toISOString()
+        });
       })
     );
   }
@@ -509,7 +652,7 @@ function confirmModalAction() {
   });
 
   closeModal();
-  showStatus("Quest aktualisiert.");
+  showStatus("Quest aktualisiert. Jetzt kannst du einen Antwort-Link schicken.");
 }
 
 function updateQuest(id, updates) {
@@ -599,53 +742,16 @@ function createId() {
   return "quest-" + Date.now() + "-" + Math.floor(Math.random() * 100000);
 }
 
-function encodeBoardSnapshot(data) {
-  const json = JSON.stringify(data);
-  return toUrlSafeBase64(json);
-}
-
-function decodeBoardSnapshot(snapshot) {
-  const json = fromUrlSafeBase64(snapshot);
-  const parsed = JSON.parse(json);
-
-  if (!Array.isArray(parsed)) {
-    throw new Error("Snapshot ist kein gültiges Quest-Array.");
+function copyText(text, successMessage) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () {
+      showStatus(successMessage);
+    }).catch(function () {
+      prompt("Kopiere diesen Link:", text);
+    });
+  } else {
+    prompt("Kopiere diesen Link:", text);
   }
-
-  return parsed;
-}
-
-function toUrlSafeBase64(str) {
-  const bytes = new TextEncoder().encode(str);
-  let binary = "";
-
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-function fromUrlSafeBase64(str) {
-  let base64 = str
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
-
-  while (base64.length % 4 !== 0) {
-    base64 += "=";
-  }
-
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-
-  return new TextDecoder().decode(bytes);
 }
 
 function escapeHtml(text) {
