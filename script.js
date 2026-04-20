@@ -126,14 +126,7 @@ function readSnapshotFromUrl() {
   }
 
   try {
-    const json = decodeBase64Unicode(raw);
-    const parsed = JSON.parse(json);
-
-    if (!Array.isArray(parsed)) {
-      return null;
-    }
-
-    return parsed;
+    return decodeBoardSnapshot(raw);
   } catch (error) {
     console.error("Fehler beim Lesen des Snapshot-Links:", error);
     showStatus("Snapshot-Link konnte nicht gelesen werden.");
@@ -247,7 +240,7 @@ async function shareBoardLink() {
     const shareUrl = url.toString();
 
     if (shareUrl.length > 7000) {
-      showStatus("Zu viele Daten für einen stabilen Link. Weniger Quests oder Texte verwenden.");
+      showStatus("Zu viele Daten für einen stabilen Link. Weniger Quests oder kürzere Texte verwenden.");
       return;
     }
 
@@ -261,8 +254,13 @@ async function shareBoardLink() {
       return;
     }
 
-    await navigator.clipboard.writeText(shareUrl);
-    showStatus("Board-Link in die Zwischenablage kopiert.");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(shareUrl);
+      showStatus("Board-Link in die Zwischenablage kopiert.");
+      return;
+    }
+
+    prompt("Kopiere diesen Link:", shareUrl);
   } catch (error) {
     console.error(error);
     showStatus("Fehler beim Generieren des Links.");
@@ -603,15 +601,51 @@ function createId() {
 
 function encodeBoardSnapshot(data) {
   const json = JSON.stringify(data);
-  return encodeBase64Unicode(json);
+  return toUrlSafeBase64(json);
 }
 
-function encodeBase64Unicode(str) {
-  return btoa(unescape(encodeURIComponent(str)));
+function decodeBoardSnapshot(snapshot) {
+  const json = fromUrlSafeBase64(snapshot);
+  const parsed = JSON.parse(json);
+
+  if (!Array.isArray(parsed)) {
+    throw new Error("Snapshot ist kein gültiges Quest-Array.");
+  }
+
+  return parsed;
 }
 
-function decodeBase64Unicode(str) {
-  return decodeURIComponent(escape(atob(str)));
+function toUrlSafeBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function fromUrlSafeBase64(str) {
+  let base64 = str
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+
+  while (base64.length % 4 !== 0) {
+    base64 += "=";
+  }
+
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return new TextDecoder().decode(bytes);
 }
 
 function escapeHtml(text) {
