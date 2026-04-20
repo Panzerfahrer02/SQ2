@@ -1,6 +1,6 @@
 const STORAGE_PREFIX = "sidequestSimulatorBoard:";
 const BOARD_PARAM = "board";
-const FLOW_PARAM = "flow";
+const SNAPSHOT_PARAM = "quest";
 
 const questForm = document.getElementById("questForm");
 const titleInput = document.getElementById("title");
@@ -49,25 +49,14 @@ function initialize() {
 
   initCollapseForMobile();
   bindEvents();
-
-  quests = loadQuests();
-
-  const handled = handleIncomingFlow();
-
-  if (!handled) {
-    renderAll();
-  }
+  loadBoardState();
+  renderAll();
 }
 
 function bindEvents() {
   questForm.addEventListener("submit", handleQuestSubmit);
   clearAllBtn.addEventListener("click", clearAllQuests);
-
-  if (shareBoardBtn) {
-    shareBoardBtn.addEventListener("click", function () {
-      showStatus("Quests jetzt bitte direkt über den Button in der jeweiligen Quest teilen.");
-    });
-  }
+  shareBoardBtn.addEventListener("click", shareCurrentQuest);
 
   cancelModalBtn.addEventListener("click", closeModal);
   confirmModalBtn.addEventListener("click", confirmModalAction);
@@ -112,6 +101,65 @@ function sanitizeBoardId(value) {
 
 function getStorageKey(boardId) {
   return STORAGE_PREFIX + boardId;
+}
+
+function loadBoardState() {
+  const incomingQuest = readSnapshotFromUrl();
+
+  if (incomingQuest) {
+    quests = [incomingQuest];
+    saveQuests();
+    removeSnapshotFromUrl();
+    showStatus("Quest aus Link geladen.");
+    return;
+  }
+
+  quests = loadQuests();
+}
+
+function readSnapshotFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get(SNAPSHOT_PARAM);
+
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const quest = decodeQuestSnapshot(raw);
+
+    if (!quest || typeof quest !== "object") {
+      return null;
+    }
+
+    return normalizeIncomingQuest(quest);
+  } catch (error) {
+    console.error("Fehler beim Lesen des Quest-Links:", error);
+    showStatus("Quest-Link konnte nicht gelesen werden.");
+    return null;
+  }
+}
+
+function normalizeIncomingQuest(quest) {
+  return {
+    id: quest.id || createId(),
+    title: quest.title || "Unbenannte Quest",
+    description: quest.description || "",
+    assignee: quest.assignee || "",
+    dueDate: quest.dueDate || "",
+    status: quest.status || "requested",
+    createdAt: quest.createdAt || new Date().toISOString(),
+    updatedAt: quest.updatedAt || new Date().toISOString(),
+    responseMessage: quest.responseMessage || "",
+    responseType: quest.responseType || "",
+    responseAuthor: quest.responseAuthor || ""
+  };
+}
+
+function removeSnapshotFromUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete(SNAPSHOT_PARAM);
+  window.history.replaceState({}, "", url.toString());
 }
 
 function loadQuests() {
@@ -169,6 +217,16 @@ function handleQuestSubmit(event) {
     return;
   }
 
+  if (quests.length > 0) {
+    const replaceConfirmed = confirm(
+      "Dieses Board soll nur eine Quest enthalten. Die vorhandene Quest wird ersetzt. Fortfahren?"
+    );
+
+    if (!replaceConfirmed) {
+      return;
+    }
+  }
+
   const newQuest = {
     id: createId(),
     title: title,
@@ -180,20 +238,19 @@ function handleQuestSubmit(event) {
     updatedAt: new Date().toISOString(),
     responseMessage: "",
     responseType: "",
-    responseAuthor: "",
-    outgoingResponseLink: ""
+    responseAuthor: ""
   };
 
-  quests.push(newQuest);
+  quests = [newQuest];
   saveQuests();
   renderAll();
   questForm.reset();
   setQuestFormCollapsed(true);
-  showStatus("Sidequest hinzugefügt.");
+  showStatus("Quest im Board gesetzt.");
 }
 
 function clearAllQuests() {
-  const confirmed = confirm("Wirklich alle Sidequests in diesem Board löschen?");
+  const confirmed = confirm("Wirklich die aktuelle Quest im Board löschen?");
   if (!confirmed) {
     return;
   }
@@ -201,244 +258,46 @@ function clearAllQuests() {
   quests = [];
   saveQuests();
   renderAll();
-  showStatus("Alle Quests wurden gelöscht.");
+  showStatus("Board geleert.");
 }
 
-function buildQuestLink(quest) {
-  const url = new URL(window.location.origin + window.location.pathname);
-
-  url.searchParams.set(BOARD_PARAM, currentBoardId);
-  url.searchParams.set(FLOW_PARAM, "quest");
-  url.searchParams.set("qid", quest.id);
-  url.searchParams.set("title", quest.title);
-  url.searchParams.set("description", quest.description || "");
-  url.searchParams.set("assignee", quest.assignee);
-  url.searchParams.set("dueDate", quest.dueDate);
-
-  return url.toString();
-}
-
-function buildResponseLink(quest) {
-  const url = new URL(window.location.origin + window.location.pathname);
-
-  url.searchParams.set(BOARD_PARAM, currentBoardId);
-  url.searchParams.set(FLOW_PARAM, "response");
-  url.searchParams.set("qid", quest.id);
-  url.searchParams.set("status", quest.status);
-  url.searchParams.set("author", quest.responseAuthor || "");
-  url.searchParams.set("message", quest.responseMessage || "");
-  url.searchParams.set("type", quest.responseType || quest.status || "");
-
-  return url.toString();
-}
-
-function handleIncomingFlow() {
-  const params = new URLSearchParams(window.location.search);
-  const flow = params.get(FLOW_PARAM);
-
-  if (!flow) {
-    return false;
-  }
-
-  if (flow === "quest") {
-    renderIncomingQuestView(params);
-    return true;
-  }
-
-  if (flow === "response") {
-    applyIncomingResponse(params);
-    cleanupFlowParams();
-    renderAll();
-    return true;
-  }
-
-  return false;
-}
-
-function renderIncomingQuestView(params) {
-  const quest = {
-    id: params.get("qid") || "",
-    title: params.get("title") || "",
-    description: params.get("description") || "",
-    assignee: params.get("assignee") || "",
-    dueDate: params.get("dueDate") || ""
-  };
-
-  if (!quest.id || !quest.title || !quest.assignee || !quest.dueDate) {
-    cleanupFlowParams();
-    renderAll();
-    showStatus("Quest-Link ist unvollständig.");
+async function shareCurrentQuest() {
+  if (quests.length === 0) {
+    showStatus("Keine Quest zum Teilen vorhanden.");
     return;
   }
 
-  const container = document.querySelector(".container");
+  try {
+    const currentQuest = quests[0];
+    const snapshot = encodeQuestSnapshot(currentQuest);
 
-  container.innerHTML = `
-    <header class="hero-card">
-      <div>
-        <p class="eyebrow">Sidequest Anfrage</p>
-        <h1>${escapeHtml(quest.title)}</h1>
-      </div>
-    </header>
+    const url = new URL(window.location.href);
+    url.searchParams.set(BOARD_PARAM, currentBoardId);
+    url.searchParams.set(SNAPSHOT_PARAM, snapshot);
 
-    <section class="panel">
-      <div class="quest-card">
-        <p><strong>Für:</strong> ${escapeHtml(quest.assignee)}</p>
-        <p><strong>Beschreibung:</strong> ${quest.description ? escapeHtml(quest.description) : "Keine Beschreibung"}</p>
-        <p><strong>Fällig am:</strong> ${formatDate(quest.dueDate)}</p>
+    const shareUrl = url.toString();
 
-        <div style="margin-top:16px;">
-          <label for="incomingAuthor">Dein Name (optional)</label>
-          <input id="incomingAuthor" type="text" placeholder="z. B. Alex" />
+    if (navigator.share) {
+      await navigator.share({
+        title: "Sidequest Simulator",
+        text: "Hier ist die aktuelle Quest:",
+        url: shareUrl
+      });
+      showStatus("Quest-Link geteilt.");
+      return;
+    }
 
-          <label for="incomingMessage" style="margin-top:12px; display:block;">Nachricht (optional)</label>
-          <textarea id="incomingMessage" rows="5" placeholder="z. B. Mach ich morgen / Keine Zeit"></textarea>
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(shareUrl);
+      showStatus("Quest-Link kopiert.");
+      return;
+    }
 
-          <div class="quest-actions" style="margin-top:16px;">
-            <button id="incomingAcceptBtn" class="accept-btn" type="button">Annehmen</button>
-            <button id="incomingRejectBtn" class="reject-btn" type="button">Ablehnen</button>
-            <button id="incomingImportBtn" class="reset-btn" type="button">Nur lokal speichern</button>
-          </div>
-        </div>
-
-        <div id="incomingResultArea" style="margin-top:18px;"></div>
-      </div>
-    </section>
-  `;
-
-  document.getElementById("incomingImportBtn").addEventListener("click", function () {
-    importQuestLocally(quest);
-    cleanupFlowParams();
-    window.location.href = baseBoardUrl(currentBoardId);
-  });
-
-  document.getElementById("incomingAcceptBtn").addEventListener("click", function () {
-    createIncomingResponse(quest, "accepted");
-  });
-
-  document.getElementById("incomingRejectBtn").addEventListener("click", function () {
-    createIncomingResponse(quest, "rejected");
-  });
-}
-
-function createIncomingResponse(quest, newStatus) {
-  const author = document.getElementById("incomingAuthor").value.trim();
-  const message = document.getElementById("incomingMessage").value.trim();
-
-  const responseQuest = {
-    id: quest.id,
-    status: newStatus,
-    responseAuthor: author,
-    responseMessage: message,
-    responseType: newStatus
-  };
-
-  const link = buildResponseLink(responseQuest);
-  const resultArea = document.getElementById("incomingResultArea");
-
-  resultArea.innerHTML = `
-    <div class="response-note">
-      <span class="response-note-title">Antwort-Link</span>
-      <div style="margin-bottom:10px;">Schicke diesen Link an die Person zurück, die dir die Quest geschickt hat.</div>
-      <textarea class="linkbox-like" readonly style="width:100%; min-height:90px;">${link}</textarea>
-      <div class="quest-actions" style="margin-top:12px;">
-        <button id="copyResponseLinkBtn" class="primary-btn" type="button">Antwort-Link kopieren</button>
-      </div>
-    </div>
-  `;
-
-  document.getElementById("copyResponseLinkBtn").addEventListener("click", function () {
-    copyText(link, "Antwort-Link kopiert.");
-  });
-}
-
-function importQuestLocally(quest) {
-  const existingIndex = quests.findIndex(function (entry) {
-    return entry.id === quest.id;
-  });
-
-  const importedQuest = {
-    id: quest.id,
-    title: quest.title,
-    description: quest.description,
-    assignee: quest.assignee,
-    dueDate: quest.dueDate,
-    status: "requested",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    responseMessage: "",
-    responseType: "",
-    responseAuthor: "",
-    outgoingResponseLink: ""
-  };
-
-  if (existingIndex >= 0) {
-    quests[existingIndex] = {
-      ...quests[existingIndex],
-      ...importedQuest
-    };
-  } else {
-    quests.push(importedQuest);
+    prompt("Kopiere diesen Link:", shareUrl);
+  } catch (error) {
+    console.error(error);
+    showStatus("Fehler beim Generieren des Links.");
   }
-
-  saveQuests();
-  showStatus("Quest lokal gespeichert.");
-}
-
-function applyIncomingResponse(params) {
-  const id = params.get("qid");
-  const status = params.get("status");
-  const author = params.get("author") || "";
-  const message = params.get("message") || "";
-  const type = params.get("type") || status || "";
-
-  if (!id || !status) {
-    showStatus("Antwort-Link ist unvollständig.");
-    return;
-  }
-
-  const existingIndex = quests.findIndex(function (quest) {
-    return quest.id === id;
-  });
-
-  if (existingIndex < 0) {
-    showStatus("Passende Quest lokal nicht gefunden.");
-    return;
-  }
-
-  quests[existingIndex] = {
-    ...quests[existingIndex],
-    status: status,
-    responseAuthor: author,
-    responseMessage: message,
-    responseType: type,
-    updatedAt: new Date().toISOString(),
-    outgoingResponseLink: ""
-  };
-
-  saveQuests();
-  showStatus("Antwort übernommen.");
-}
-
-function cleanupFlowParams() {
-  const url = new URL(window.location.href);
-  url.searchParams.delete(FLOW_PARAM);
-  url.searchParams.delete("qid");
-  url.searchParams.delete("title");
-  url.searchParams.delete("description");
-  url.searchParams.delete("assignee");
-  url.searchParams.delete("dueDate");
-  url.searchParams.delete("status");
-  url.searchParams.delete("author");
-  url.searchParams.delete("message");
-  url.searchParams.delete("type");
-  window.history.replaceState({}, "", url.toString());
-}
-
-function baseBoardUrl(boardId) {
-  const url = new URL(window.location.origin + window.location.pathname);
-  url.searchParams.set(BOARD_PARAM, boardId);
-  return url.toString();
 }
 
 function openAnotherBoard() {
@@ -449,7 +308,10 @@ function openAnotherBoard() {
     return;
   }
 
-  window.location.href = baseBoardUrl(newBoard);
+  const url = new URL(window.location.href);
+  url.searchParams.set(BOARD_PARAM, newBoard);
+  url.searchParams.delete(SNAPSHOT_PARAM);
+  window.location.href = url.toString();
 }
 
 function renderAll() {
@@ -575,13 +437,13 @@ function createQuestCard(quest) {
   const actions = document.createElement("div");
   actions.className = "quest-actions";
 
-  if (quest.status === "requested") {
-    actions.appendChild(
-      createButton("Quest senden", "reset-btn", function () {
-        copyText(buildQuestLink(quest), "Quest-Link kopiert.");
-      })
-    );
+  actions.appendChild(
+    createButton("Link generieren", "reset-btn", function () {
+      shareCurrentQuest();
+    })
+  );
 
+  if (quest.status === "requested") {
     actions.appendChild(
       createButton("Annehmen", "accept-btn", function () {
         openResponseModal(quest, "accepted");
@@ -597,12 +459,6 @@ function createQuestCard(quest) {
 
   if (quest.status === "accepted") {
     actions.appendChild(
-      createButton("Antwort-Link", "reset-btn", function () {
-        copyText(buildResponseLink(quest), "Antwort-Link kopiert.");
-      })
-    );
-
-    actions.appendChild(
       createButton("Als absolviert markieren", "complete-btn", function () {
         updateQuest(quest.id, {
           status: "completed",
@@ -614,14 +470,6 @@ function createQuestCard(quest) {
     actions.appendChild(
       createButton("Ablehnen", "reject-btn", function () {
         openResponseModal(quest, "rejected");
-      })
-    );
-  }
-
-  if (quest.status === "rejected") {
-    actions.appendChild(
-      createButton("Antwort-Link", "reset-btn", function () {
-        copyText(buildResponseLink(quest), "Antwort-Link kopiert.");
       })
     );
   }
@@ -700,7 +548,7 @@ function confirmModalAction() {
   });
 
   closeModal();
-  showStatus("Quest aktualisiert.");
+  showStatus("Quest aktualisiert. Jetzt kannst du den neuen Stand wieder teilen.");
 }
 
 function updateQuest(id, updates) {
@@ -720,7 +568,7 @@ function updateQuest(id, updates) {
 }
 
 function deleteQuestById(id) {
-  const confirmed = confirm("Diese Sidequest wirklich löschen?");
+  const confirmed = confirm("Diese Quest wirklich löschen?");
   if (!confirmed) {
     return;
   }
@@ -790,16 +638,45 @@ function createId() {
   return "quest-" + Date.now() + "-" + Math.floor(Math.random() * 100000);
 }
 
-function copyText(text, successMessage) {
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(function () {
-      showStatus(successMessage);
-    }).catch(function () {
-      prompt("Kopiere diesen Link:", text);
-    });
-  } else {
-    prompt("Kopiere diesen Link:", text);
+function encodeQuestSnapshot(quest) {
+  const json = JSON.stringify(quest);
+  return toUrlSafeBase64(json);
+}
+
+function decodeQuestSnapshot(snapshot) {
+  const json = fromUrlSafeBase64(snapshot);
+  return JSON.parse(json);
+}
+
+function toUrlSafeBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
   }
+
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function fromUrlSafeBase64(str) {
+  let base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+
+  while (base64.length % 4 !== 0) {
+    base64 += "=";
+  }
+
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return new TextDecoder().decode(bytes);
 }
 
 function escapeHtml(text) {
